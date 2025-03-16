@@ -2,6 +2,21 @@ import axios from "axios";
 
 const API_BASE_URL = "http://54.241.95.38:3001";
 
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+
+  failedQueue = [];
+};
+
 const refreshAccessToken = async () => {
   try {
     const refreshToken = localStorage.getItem("refreshToken");
@@ -16,15 +31,18 @@ const refreshAccessToken = async () => {
     const newAccessToken = response?.data?.access?.token;
     localStorage.setItem("authToken", newAccessToken);
     localStorage.setItem("refreshToken", response?.data?.refresh?.token);
+    processQueue(null, newAccessToken);
     return newAccessToken;
   } catch (error) {
     console.error("Refresh Token Error:", error);
     localStorage.removeItem("authToken");
     localStorage.removeItem("userProfile");
+    processQueue(error, null);
     window.location.href = "/login";
     throw error;
   }
 };
+
 const API_Factory = async (method, endpoint, data = null, token = null, retry = false, contentType) => {
   try {
     const headers = { "Content-Type": contentType };
@@ -47,11 +65,29 @@ const API_Factory = async (method, endpoint, data = null, token = null, retry = 
     }
 
     if (error.response.status === 401 && retry) {
+      if (isRefreshing) {
+        // If the token is already being refreshed, add the request to the queue
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then(token => {
+            return API_Factory(method, endpoint, data, token, false);
+          })
+          .catch(err => {
+            throw err;
+          });
+      }
+
+      isRefreshing = true;
+
       try {
         const newToken = await refreshAccessToken();
+        isRefreshing = false;
         return API_Factory(method, endpoint, data, newToken, false);
       } catch (refreshError) {
+        isRefreshing = false;
         console.error("Token refresh failed:", refreshError);
+        throw refreshError;
       }
     }
 
@@ -64,5 +100,6 @@ const API_Factory = async (method, endpoint, data = null, token = null, retry = 
     };
   }
 };
+
 // ✅ Export API_Factory
 export default API_Factory;

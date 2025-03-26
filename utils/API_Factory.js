@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE_URL = "http://54.241.95.38:3001";
+const API_BASE_URL = "";
 
 let isRefreshing = false;
 let failedQueue = [];
